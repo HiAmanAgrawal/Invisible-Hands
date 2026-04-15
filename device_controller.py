@@ -186,6 +186,126 @@ def screenshot_to_bytes(image: Image.Image) -> bytes:
 
 
 # ────────────────────────────────────────────────────────────
+# Axis overlay for vision model
+# ────────────────────────────────────────────────────────────
+# Small vision models are BAD at guessing raw pixel coordinates.
+# Solution: draw numbered axes (like a graph) along the top and
+# left edges of the screenshot, with light gridlines across.
+# The model reads the axis labels to estimate x,y coordinates.
+# Much cleaner than numbered cells — no clutter over the UI.
+
+def _get_axis_font(size: int, bold: bool = False):
+    """Load a font for axis labels.
+    Tries macOS bold system fonts first, falls back to regular/default."""
+    from PIL import ImageFont
+
+    if bold:
+        bold_paths = [
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/Library/Fonts/Arial Bold.ttf",
+        ]
+        for font_path in bold_paths:
+            try:
+                # index=1 in .ttc is typically Bold variant
+                return ImageFont.truetype(font_path, size, index=1)
+            except Exception:
+                continue
+
+    for font_path in [
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/SFNSMono.ttf",
+    ]:
+        try:
+            return ImageFont.truetype(font_path, size)
+        except Exception:
+            continue
+
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def annotate_screenshot_with_axes(
+    image: Image.Image,
+    tick_spacing: int = 50,
+) -> Image.Image:
+    """Draw coordinate axes on the screenshot — bold numbers on thin edges, light gridlines.
+
+    Like a graph: X-axis labels along the top, Y-axis labels along the left.
+    Ticks every 50px for precision, bold labels every 100px for readability.
+    Light gridlines at each tick help the model estimate positions.
+
+    Args:
+      image: The original screenshot (PIL Image)
+      tick_spacing: Pixels between each tick mark (default 50)
+
+    Returns:
+      The annotated screenshot (model outputs x,y directly)
+    """
+    from PIL import ImageDraw
+
+    w, h = image.size
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    bold_font = _get_axis_font(13, bold=True)
+    small_font = _get_axis_font(10)
+    axis_band = 16  # narrow band for axis labels
+
+    # Thin dark band along the top edge for X-axis labels
+    draw.rectangle([0, 0, w, axis_band], fill=(0, 0, 0, 200))
+    # Thin dark band along the left edge for Y-axis labels
+    draw.rectangle([0, 0, axis_band + 8, h], fill=(0, 0, 0, 200))
+
+    # X-axis: vertical gridlines + labels along the top
+    for x in range(0, w, tick_spacing):
+        is_major = (x % 100 == 0)
+
+        # Gridline — bolder for major ticks
+        line_alpha = 70 if is_major else 35
+        draw.line([(x, axis_band), (x, h)], fill=(0, 255, 0, line_alpha), width=1)
+
+        # Tick mark
+        draw.line(
+            [(x, axis_band - 3), (x, axis_band)],
+            fill=(0, 255, 0, 220), width=2 if is_major else 1,
+        )
+
+        # Label — bold + bigger for major ticks (every 100px), small for minor
+        if is_major:
+            draw.text((x + 2, 1), str(x), fill=(255, 255, 255, 255), font=bold_font)
+        else:
+            draw.text((x + 2, 3), str(x), fill=(200, 200, 200, 200), font=small_font)
+
+    # Y-axis: horizontal gridlines + labels along the left
+    for y in range(0, h, tick_spacing):
+        is_major = (y % 100 == 0)
+
+        # Gridline
+        line_alpha = 70 if is_major else 35
+        draw.line([(axis_band + 8, y), (w, y)], fill=(0, 255, 0, line_alpha), width=1)
+
+        # Tick mark
+        draw.line(
+            [(axis_band + 4, y), (axis_band + 8, y)],
+            fill=(0, 255, 0, 220), width=2 if is_major else 1,
+        )
+
+        # Label
+        if is_major:
+            draw.text((1, y + 1), str(y), fill=(255, 255, 255, 255), font=bold_font)
+        else:
+            draw.text((1, y + 1), str(y), fill=(200, 200, 200, 200), font=small_font)
+
+    base = image.convert("RGBA")
+    result = Image.alpha_composite(base, overlay)
+
+    return result.convert("RGB")
+
+
+# ────────────────────────────────────────────────────────────
 # App control (macOS)
 # ────────────────────────────────────────────────────────────
 
@@ -321,18 +441,26 @@ def type_text(text: str):
 # click at arbitrary pixel coordinates.
 
 def click(x: int, y: int):
-    """Click at the given (x, y) pixel coordinates."""
-    pyautogui.click(x, y)
+    """Click at (x, y) using move-then-click for reliability.
+    Moving first ensures the cursor is visually at the target before clicking,
+    which avoids race conditions with UI hover states."""
+    pyautogui.moveTo(x, y, duration=0.15)
+    time.sleep(0.1)
+    pyautogui.click()
 
 
 def double_click(x: int, y: int):
-    """Double-click at the given (x, y) pixel coordinates."""
-    pyautogui.doubleClick(x, y)
+    """Double-click at (x, y) using move-then-click for reliability."""
+    pyautogui.moveTo(x, y, duration=0.15)
+    time.sleep(0.1)
+    pyautogui.doubleClick()
 
 
 def right_click(x: int, y: int):
-    """Right-click at the given (x, y) pixel coordinates."""
-    pyautogui.rightClick(x, y)
+    """Right-click at (x, y) using move-then-click for reliability."""
+    pyautogui.moveTo(x, y, duration=0.15)
+    time.sleep(0.1)
+    pyautogui.rightClick()
 
 
 def scroll_screen(direction: str, amount: int = 3):
@@ -390,7 +518,7 @@ def preflight_check() -> list[str]:
     Validates:
       1. Screen capture works (Screen Recording permission)
       2. AppleScript can talk to System Events (Automation permission)
-      3. Ollama is running and has the required models
+      3. LM Studio is running and has the required models loaded
 
     Returns a list of error strings. Empty list = all good.
     """
@@ -411,7 +539,6 @@ def preflight_check() -> list[str]:
         errors.append(f"Screen capture failed: {e}")
 
     # 2. AppleScript System Events — need Automation permission
-    # We test by asking System Events for the name of the first process
     try:
         result = subprocess.run(
             ["osascript", "-e",
@@ -427,26 +554,32 @@ def preflight_check() -> list[str]:
     except Exception as e:
         errors.append(f"AppleScript check failed: {e}")
 
-    # 3. Ollama connectivity + required models
+    # 3. LM Studio connectivity + required models
     try:
-        import ollama as _ollama_mod
-        models = _ollama_mod.list()
-        model_names = [m.model for m in models.models]
+        import json as _json
+        import urllib.request
+        req = urllib.request.Request("http://localhost:1234/v1/models")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = _json.loads(resp.read())
+        model_ids = [m["id"] for m in data.get("data", [])]
 
-        if not any("llama3.2-vision" in n for n in model_names):
+        from brain import VISION_MODEL, THINKING_MODEL
+        if VISION_MODEL not in model_ids:
             errors.append(
-                f"Model 'llama3.2-vision' not found. Available: {model_names}\n"
-                f"  Run: ollama pull llama3.2-vision"
+                f"Vision model '{VISION_MODEL}' not loaded in LM Studio.\n"
+                f"  Available: {model_ids}\n"
+                f"  Load it in LM Studio's model manager."
             )
-        if not any("llama3" in n for n in model_names):
+        if THINKING_MODEL not in model_ids:
             errors.append(
-                f"Model 'llama3' not found. Available: {model_names}\n"
-                f"  Run: ollama pull llama3"
+                f"Thinking model '{THINKING_MODEL}' not loaded in LM Studio.\n"
+                f"  Available: {model_ids}\n"
+                f"  Load it in LM Studio's model manager."
             )
     except Exception as e:
         errors.append(
-            f"Cannot connect to Ollama: {e}\n"
-            f"  Make sure Ollama is running."
+            f"Cannot connect to LM Studio: {e}\n"
+            f"  Make sure LM Studio is running with the server enabled (port 1234)."
         )
 
     return errors
