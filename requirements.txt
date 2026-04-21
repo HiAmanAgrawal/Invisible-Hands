@@ -1,3 +1,18 @@
-pyautogui>=0.9.54
-openai>=1.0.0
+# Runtime dependencies — kept here for users who prefer the `pip install -r` workflow.
+# The package itself is also installable via `pip install -e .` (see pyproject.toml).
+
+pyautogui>=0.9.41
 Pillow>=10.0.0
+numpy>=1.24.0
+pytesseract>=0.3.10
+mss>=9.0.0
+
+# Platform-specific extras (install only on the matching OS):
+#   macOS:    pip install -e .[mac]
+#   Windows:  pip install -e .[windows]
+#
+# Voice input via OpenAI Whisper (optional):
+#   pip install -e .[voice]
+# Bundles `openai-whisper` (transcription) and `sounddevice` (mic capture).
+# Whisper additionally requires `ffmpeg` on PATH (brew install ffmpeg /
+# choco install ffmpeg).

@@ -217,3 +217,9 @@ __marimo__/
 
 # Agent reports (screenshots + JSON logs)
 reports/
+
+# Click-test screenshots produced by scripts/test_click.py --save
+test_results/
+
+# macOS Finder metadata
+.DS_Store

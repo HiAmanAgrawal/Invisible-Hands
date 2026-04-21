@@ -1,0 +1,46 @@
+[project]
+name = "invisible-hands"
+version = "0.2.0"
+description = "Local AI desktop agent. Plans tasks with an LLM, then drives mouse + keyboard through OCR, native UI automation, and a vision model."
+requires-python = ">=3.9"
+readme = "README.md"
+
+dependencies = [
+    # Lower bound is 0.9.41 because the optional `mac` extra pulls in
+    # `atomacos`, which hard-pins `pyautogui<0.9.42`. We don't use any
+    # feature that requires a newer pyautogui, so this floor keeps the
+    # macOS native UI clicker installable alongside the core agent.
+    "pyautogui>=0.9.41",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "pytesseract>=0.3.10",
+    "mss>=9.0.0",
+]
+
+[project.optional-dependencies]
+mac = [
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+    # atomacos is the maintained fork of atomac that supports modern macOS.
+    # The native UI clicker imports it as `atomacos` (preferred) or `atomac`
+    # (legacy fallback), so installing atomacos covers both code paths.
+    "atomacos>=3.0; sys_platform == 'darwin'",
+]
+windows = [
+    "pywinauto>=0.6.8; sys_platform == 'win32'",
+]
+# Voice input via OpenAI Whisper (vanilla). Runs fully offline once the model
+# is cached. `sounddevice` captures mic audio; `whisper` transcribes it.
+voice = [
+    "openai-whisper>=20231117",
+    "sounddevice>=0.4.6",
+]
+
+[project.scripts]
+invisible-hands = "invisible_hands.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
